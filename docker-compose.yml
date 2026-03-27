@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: digicap-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: digicap
+      POSTGRES_USER: digicap
+      POSTGRES_PASSWORD: digicap_password_change_me
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U digicap"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── 통합 배포: Go + Next.js 단일 컨테이너 ──
+  app:
+    container_name: digicap-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3100:3100"   # Next.js frontend
+      - "3200:3200"   # Go backend API
+      - "5140:5140/udp"  # Syslog
+    environment:
+      PORT: "3200"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: digicap
+      DB_PASSWORD: digicap_password_change_me
+      DB_NAME: digicap
+      JWT_SECRET: change-this-to-a-long-random-secret
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── 분리 배포: Go 백엔드만 ──
+  # core:
+  #   container_name: digicap-core
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.core
+  #   ports:
+  #     - "3200:3200"
+  #     - "5140:5140/udp"
+  #   environment:
+  #     PORT: "3200"
+  #     DB_HOST: postgres
+  #     DB_PORT: "5432"
+  #     DB_USER: digicap
+  #     DB_PASSWORD: digicap_password_change_me
+  #     DB_NAME: digicap
+  #     JWT_SECRET: change-this-to-a-long-random-secret
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+
+  # ── 분리 배포: Next.js 프론트만 ──
+  # web:
+  #   container_name: digicap-web
+  #   build:
+  #     context: ./web
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "3100:3100"
+  #   environment:
+  #     API_URL: http://core:3200
+  #   depends_on:
+  #     - core
+
+volumes:
+  pgdata:

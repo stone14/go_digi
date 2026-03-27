@@ -1,0 +1,11 @@
+{
+  "port": "3200",
+  "db": {
+    "host": "localhost",
+    "port": "5432",
+    "user": "argus",
+    "password": "argus",
+    "database": "digicap",
+    "max_conns": 20
+  }
+}
