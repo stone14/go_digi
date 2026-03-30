@@ -2,9 +2,9 @@
   "port": "3200",
   "db": {
     "host": "localhost",
-    "port": "5432",
-    "user": "argus",
-    "password": "argus",
+    "port": "5433",
+    "user": "digicap",
+    "password": "digicap_password_change_me",
     "database": "digicap",
     "max_conns": 20
   }

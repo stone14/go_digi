@@ -1,204 +1,258 @@
-# Argus (Digicap) — Claude Code 컨텍스트
+# Digicap v3.0 — Claude Code Context
 
-## 프로젝트 개요
-온프레미스 인프라 모니터링 + 자산 관리 플랫폼.
-서버, 네트워크, 스토리지, 가상화 전체를 하나의 자산 ID 중심으로 통합 관리.
-토폴로지 자동 발견(LLDP/MAC/ARP/WWN), AI 분석(Ollama/OpenAI/Anthropic), 랙 시각화, 인시던트 관리 제공.
+## Project Overview
+On-premises infrastructure monitoring + asset management platform.
+Servers, network, storage, virtualization unified under a single asset ID.
+Topology auto-discovery (LLDP/MAC/ARP/WWN), AI analysis (Ollama/OpenAI/Anthropic), rack visualization, incident management.
 
-**대상**: 중견기업/공공기관 (300~1000명, IT 인력 2~5명)
+**Target**: Mid-sized enterprises / public institutions (300-1000 staff, 2-5 IT ops)
 
-## 아키텍처
+**Go module**: `github.com/stone14/go_digi`
+
+## Architecture
 ```
-Next.js 14 Web ←→ PostgreSQL 16
-       ↓
-   node-cron (1m/5m)
-       ↑ ↓
-Push Agent ←→ Pull Agent (Go 1.22)
-    (60s)         (60s)
-      ↑              ↑
-모니터링 대상 서버 (Physical/VM/Cloud)
-```
-
-- **프론트엔드**: Next.js 14 (App Router) + Tailwind CSS 다크 테마 + Recharts + React Flow
-- **백엔드**: Next.js API Routes + PostgreSQL 16 (pg 드라이버 직접 사용)
-- **에이전트**: Go 1.22 (Push Agent + Pull Agent), gopsutil v3
-- **배포**: Docker Compose (postgres + web + agent + syslog)
-- **인증**: JWT + bcryptjs
-- **AI**: Ollama (로컬) / OpenAI / Anthropic 선택 가능
-
-## 현황
-| 항목 | 수치 |
-|------|------|
-| 대시보드 페이지 | 31 |
-| API 라우트 | 48 (20개 엔드포인트) |
-| DB 마이그레이션 | 16 (+ 시드 4) |
-| 컴포넌트 | ~20+ |
-| 라이브러리 | 12 |
-
-## 디렉토리 구조
-```
-argus/
-├── web/                     # Next.js 14 Web UI
-│   ├── src/app/(dashboard)/ # 31개 대시보드 페이지
-│   ├── src/app/api/         # 48개 API 라우트
-│   ├── src/components/      # React 컴포넌트
-│   └── src/lib/             # 유틸리티 라이브러리
-├── agent/                   # Push Agent (Go)
-├── agent-pull/              # Pull Agent (Go)
-├── collector/               # Syslog Collector (Go)
-├── scripts/migrations/      # SQL 마이그레이션 + 시드 데이터
-├── dist/                    # 빌드 산출물 (ZIP)
-├── docker-compose.yml
-├── DEVPLAN.md               # v2.0 개발 체크리스트
-├── INSTALL.md               # 설치 가이드
-└── README.md                # 프로젝트 문서
+Next.js 14 (:3100) ──rewrites /api/*──> Go Echo (:3200)
+       │                                    │
+       │                              ┌─────┼──────────┐
+       │                              │     │          │
+       │                          Scheduler  Syslog   WebSocket
+       │                          (cron)    (UDP 5140) Hub
+       │                              │
+       └──── PostgreSQL 16 (digicap) ─┘
+                port 5433 (host) / 5432 (docker)
 ```
 
-## 주요 페이지 (31개)
-| 영역 | 페이지 |
-|------|--------|
-| 모니터링 | servers, servers/[id], network, network/[id], storage, storage/[id], hardware, virtual |
-| 자산 | assets, assets/capacity, assets/changes, assets/dependencies, assets/ipam, assets/software, assets/ssl |
-| 토폴로지 | topology (React Flow, Physical/SAN/L3 레이어) |
-| 랙 | rack (8종 스텐실, U 배치, 미니 메트릭 바) |
-| 알림/인시던트 | alerts, alerts/rules, incidents |
-| AI | ai/chat, ai/anomaly, ai/logs |
-| 보안 | security |
-| 리포트 | reports |
-| 설정 | settings, settings/agents, settings/llm, settings/users |
+- **Frontend**: Next.js 14 (App Router) + Tailwind CSS dark theme + Recharts + React Flow
+- **Backend**: Go (Echo v4) — all API, auth, scheduler, websocket, syslog receiver
+- **DB**: PostgreSQL 16, `digicap` database, pgx v5 connection pool (max 20)
+- **AI**: Ollama (local) / OpenAI / Anthropic — selectable via settings
+- **Auth**: JWT (golang-jwt/v5) + bcrypt
+- **Deploy**: Docker Compose (digicap-db + digicap-app) or standalone
 
-## API 라우트 (주요)
-| 엔드포인트 | 용도 |
-|-----------|------|
-| /api/agent/* | 에이전트 하트비트, 메트릭 수집 |
-| /api/alerts | 알림 CRUD |
-| /api/assets/* | 자산 CRUD, IPAM, 라이프사이클, 계약, Excel/CSV 가져오기 |
-| /api/metrics | 시계열 메트릭 (raw/5m/1h 집계) |
-| /api/topology/* | LLDP/MAC/WWN 자동 발견 |
-| /api/bmc | Redfish BMC 수집 |
-| /api/llm | LLM 분석 |
-| /api/rack | 랙 관리 |
+## Stats
+| Item | Count |
+|------|-------|
+| Go Handlers | 20 |
+| API Routes | ~80 endpoints |
+| Dashboard Pages | ~17 sections |
+| Web API Proxies | 22 |
+| DB Migration | 1 (unified from Argus v2.x 001-016) |
+| Internal Packages | 12 |
+| Web Libraries | 13 |
 
-## 핵심 라이브러리 (web/src/lib/)
-| 파일 | 용도 |
-|------|------|
-| db.ts | PostgreSQL 커넥션 풀 |
-| auth.ts | JWT 인증 |
-| alert-engine.ts | 임계치 기반 알림 |
-| llm-analyzer.ts | LLM 예측 분석 |
-| mac-parser.ts | Cisco/Juniper/FortiGate/Brocade 파싱 |
-| redfish.ts | BMC/IPMI Redfish API |
-| service-checker.ts | HTTP/TCP/DNS/Ping 서비스 체크 |
-| ssl-checker.ts | SSL 인증서 만료 체크 |
-| notify.ts | Slack/Email/Webhook 알림 |
-| scheduler.ts | node-cron 스케줄러 |
+## Directory Structure
+```
+Go_digi/
+├── cmd/server/main.go          # Entry point — Echo routes, graceful shutdown
+├── internal/
+│   ├── auth/                   # JWT middleware (RequireAuth, RequireRole)
+│   ├── config/                 # Config loader (config.json + env override)
+│   ├── db/                     # pgx v5 pool + golang-migrate
+│   │   └── migrations/         # Embedded SQL (000001_initial)
+│   ├── handler/                # 20 Echo handler files
+│   ├── llm/                    # LLM clients (Ollama, OpenAI, Anthropic)
+│   ├── middleware/             # Request logger
+│   ├── notify/                 # Slack/Email/Webhook notifications
+│   ├── scheduler/              # robfig/cron scheduler
+│   ├── syslog/                 # UDP syslog receiver (:5140)
+│   └── websocket/              # WebSocket hub (gorilla/websocket)
+├── migrations/                 # SQL migration files (also embedded)
+├── web/                        # Next.js 14 frontend
+│   ├── src/app/(dashboard)/    # 17 dashboard page sections
+│   ├── src/app/api/            # 22 API proxy routes (rewrite to Go)
+│   ├── src/components/         # React components (7 directories)
+│   └── src/lib/                # 13 utility libraries
+├── data/
+│   ├── digicap_data.dump       # PostgreSQL data dump
+│   └── restore.sh              # Data restore script
+├── scripts/                    # Migration/demo data SQL scripts
+├── docs/                       # Documentation (INSTALL, DEVPLAN, etc.)
+├── config.json                 # Local dev config
+├── docker-compose.yml          # DB + App services
+├── Dockerfile                  # Multi-stage: Go + Next.js unified
+├── Dockerfile.core             # Go backend only
+└── server.exe                  # Built binary (Windows)
+```
 
-## DB 스키마 핵심 테이블
-- **assets** — 모든 자산의 중심 (server/switch/router/firewall/fc_switch/nas/san/das) + manager, user_name, user_team
-- **metrics** — 시계열 메트릭 (cpu, mem, disk, net), 분기별 파티션
-- **metrics_5m / metrics_1h** — 집계 메트릭
-- **alerts / alert_rules** — 알림 + 규칙
-- **incidents / incident_timeline** — 인시던트 관리
-- **topology_nodes / topology_edges** — 토폴로지 (physical/san/l3 레이어)
-- **racks / rack_units** — 랙 + 유닛 배치
-- **ip_subnets / ip_allocations** — IPAM
-- **maintenance_contracts** — 유지보수/SW 계약
-- **network_ports** — 스위치 포트 상태
-- **virtual_hosts / virtual_machines** — 가상화
-- **storage_volumes / storage_connections** — 스토리지
+## Configuration
 
-## 필수 규칙
+### config.json (local development)
+```json
+{
+  "port": "3200",
+  "db": {
+    "host": "localhost",
+    "port": "5433",
+    "user": "digicap",
+    "password": "digicap_password_change_me",
+    "database": "digicap",
+    "max_conns": 20
+  }
+}
+```
 
-### 코딩 규칙
-- **export default** 사용 — `export { X }` 형태 금지
-- **다크 테마 전용** — navy 배경 (#0a0e1a ~ #1a2540), cyan/green/purple/orange/red 강조색
-- **한국어 UI** — 모든 라벨, 메시지 한국어
-- **Tailwind CSS** — 인라인 스타일 대신 Tailwind 유틸리티 사용
-- **CSS 변수** — `var(--c-cyan)`, `var(--c-green)` 등 테마 변수 활용
-- **폰트**: Pretendard Variable (한글) + Inter (영문) + JetBrains Mono (코드)
+### Environment Variables (override config.json)
+`PORT`, `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `JWT_SECRET`
 
-### Next.js 규칙
-- `output: 'standalone'` — 프로덕션 빌드
-- `useSearchParams()` 사용 시 반드시 `<Suspense>` 래핑 (SSR 호환)
-- 개발: `npm run dev` (포트 3100), 프로덕션: `npm run build && npm start`
-
-### DB 규칙
-- **pg 드라이버 직접 사용** — ORM 없음
-- 환경변수: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
-- 메트릭 테이블은 분기별 파티션 (2025-Q1 ~ 2027-Q4)
-
-### Docker Compose
+## Docker Compose
 ```yaml
 services:
-  postgres:  # PostgreSQL 16, 포트 5432
-  web:       # Next.js 14, 포트 3100
-  agent:     # Push Agent (profile: agent)
-  syslog:    # Syslog Collector, 5140/UDP (profile: collector)
+  postgres:     # digicap-db, PostgreSQL 16, host:5433 -> container:5432
+  app:          # digicap-app, Go + Next.js unified
+                # host:3300 -> container:3100 (Next.js)
+                # host:3200 -> container:3200 (Go API)
+                # host:5140 -> container:5140/udp (Syslog)
 ```
 
-## 개발 환경 설정
+Note: Port 3300 is used for Next.js in Docker because Argus (argus-web) uses 3100 on the host.
+
+## Next.js Frontend (web/)
+- `output: 'standalone'` for production
+- Rewrites `/api/*` to Go backend (`API_URL` env, default `http://localhost:3200`)
+- Also rewrites `/health` and `/ws`
+- Dark theme only — navy background (#0a0e1a ~ #1a2540), cyan/green/purple/orange/red accents
+- Korean UI — all labels and messages in Korean
+- Fonts: Pretendard Variable (Korean) + Inter (English) + JetBrains Mono (code)
+
+## API Routes (Go Backend)
+
+### Public
+| Method | Path | Handler |
+|--------|------|---------|
+| GET | /health | Health check |
+| GET | /ws | WebSocket |
+| POST | /api/auth | Login |
+| DELETE | /api/auth | Logout |
+
+### Agent API (token auth)
+| Method | Path | Handler |
+|--------|------|---------|
+| POST | /api/agent/register | Push agent registration |
+| POST | /api/agent/pull-register | Pull agent registration |
+| POST | /api/agent/heartbeat | Heartbeat |
+| POST | /api/agent/metrics | Metrics ingest |
+| GET | /api/agent/service-checks | Get assigned checks |
+| POST | /api/agent/service-check-results | Report results |
+| GET | /api/agent/install-script | Auto-install script |
+| GET | /api/agent/download | Agent binary download |
+
+### Authenticated Routes (JWT required)
+Assets, Organizations, Metrics, Alerts, Service Checks, Incidents, Topology, Network/IPAM, Reports, BMC/Redfish, SSL, LLM, Syslog, License
+
+### Admin-Only Routes
+User management, Agent token management, System settings, Audit logs, License activation
+
+## Go Handler Files (internal/handler/)
+`agent.go`, `alerts.go`, `assets.go`, `audit.go`, `auth.go`, `bmc.go`, `health.go`, `incidents.go`, `license.go`, `llm.go`, `metrics.go`, `network.go`, `organizations.go`, `reports.go`, `service_checks.go`, `settings.go`, `ssl.go`, `syslog_handler.go`, `topology.go`, `users.go`
+
+## Web Libraries (web/src/lib/)
+| File | Purpose |
+|------|---------|
+| db.ts | PostgreSQL connection (legacy, proxied to Go) |
+| auth.ts | JWT authentication |
+| alert-engine.ts | Threshold-based alerting |
+| llm-analyzer.ts | LLM predictive analysis |
+| mac-parser.ts | Cisco/Juniper/FortiGate/Brocade parsing |
+| redfish.ts | BMC/IPMI Redfish API |
+| service-checker.ts | HTTP/TCP/DNS/Ping service checks |
+| ssl-checker.ts | SSL certificate expiry |
+| notify.ts | Slack/Email/Webhook notifications |
+| scheduler.ts | node-cron scheduler (legacy) |
+| audit.ts | Audit logging helper |
+| maintenance-checker.ts | Maintenance contract checker |
+| theme.tsx | Theme provider |
+
+## LLM Package (internal/llm/)
+Multi-provider support: `ollama.go`, `openai.go`, `anthropic.go`, `client.go`, `pool.go`
+
+## DB Schema (key tables)
+- **users** — RBAC (admin / operator / readonly), login lockout
+- **audit_logs** — Partitioned by date range
+- **organizations** — Tree structure (company / division / team)
+- **assets** — Central entity (server/switch/router/firewall/fc_switch/nas/san/das)
+- **metrics** — Time-series (cpu, mem, disk, net), quarterly partitions
+- **metrics_5m / metrics_1h** — Aggregated metrics
+- **alerts / alert_rules** — Alerts + rules
+- **incidents / incident_timeline** — Incident management
+- **topology_nodes / topology_edges** — Physical/SAN/L3 topology
+- **racks / rack_units** — Rack + unit placement
+- **ip_subnets / ip_allocations** — IPAM
+- **maintenance_contracts** — Maintenance/SW contracts
+- **network_ports** — Switch port status
+- **virtual_hosts / virtual_machines** — Virtualization
+- **storage_volumes / storage_connections** — Storage
+
+## Critical Rules
+
+### Go Coding
+- All API routes defined in `cmd/server/main.go`
+- Handlers in `internal/handler/` — one file per domain
+- Config: `config.json` first, then env vars override
+- DB: pgx v5 pool, no ORM
+- Migrations: golang-migrate with embedded SQL
+- Graceful shutdown with signal handling
+
+### Frontend Rules
+- `export default` — no named exports `{ X }`
+- Dark theme only — Tailwind CSS utilities
+- Korean UI for all labels
+- `useSearchParams()` must be wrapped in `<Suspense>`
+
+### Dual Development Environment
+Argus (Next.js) and Digicap (Go) run simultaneously on the same machine:
+- **Argus**: argus-db on port 5432, argus-web on port 3100
+- **Digicap**: digicap-db on port 5433, Go backend on port 3200, Next.js dev on port 3100 (or Docker 3300)
+
+## Development
+
+### Prerequisites
+- Go 1.26+
+- Node.js 20+
+- PostgreSQL 16 (or Docker)
+
+### Quick Start
 ```bash
-git clone https://github.com/stone14/monitor.git
-cd monitor
-docker compose up -d          # DB + Web 시작
-cd web && npm install && npm run dev  # 개발 서버 (HMR)
+# Start DB
+docker compose up -d postgres
+
+# Restore data (optional)
+cd data && bash restore.sh
+
+# Start Go backend
+go build ./cmd/server/ && ./server.exe
+# or: go run ./cmd/server/
+
+# Start Next.js frontend (separate terminal)
+cd web && npm install && npm run dev
 ```
 
-기본 계정: `admin` / `argus1234!`
+### Login Credentials
+- **Email**: admin@digicap.local
+- **Password**: digicap1234!
 
-## 배포 (서버)
+### Data Restore
 ```bash
-git pull
-docker compose up -d --build  # 프론트엔드 변경 시
+cd data
+bash restore.sh   # Restores digicap_data.dump to digicap DB on port 5433
 ```
 
-DB 초기화 (데이터 삭제 후 재생성):
+### Build
 ```bash
-docker compose down -v
-docker compose up -d
+# Go backend
+go build -o server.exe ./cmd/server/
+
+# Docker (unified: Go + Next.js)
+docker compose up -d --build
 ```
 
-## v2.0 개발 현황 (DEVPLAN.md 참조)
-모든 항목 완료:
-- **Tier 1**: 자산 통계 카드, 대시보드 드릴다운, 토폴로지 자동배치, 필터 강화, CSV 내보내기, TOP10 링크
-- **Tier 2**: 토폴로지 메트릭 팝오버, Physical/SAN 레이어 전환, 최근활동 컬럼, IPAM CRUD, 벌크 작업
-- **Tier 3**: 토폴로지 CPU/MEM 히트맵 오버레이, 알림 표시, 랙 실시간 메트릭 바
+### Production Docker Ports
+- 3300 → Next.js frontend (mapped to avoid conflict with Argus)
+- 3200 → Go API backend
+- 5140/udp → Syslog receiver
 
-## v2.1 개발 현황
-- **자산 담당자/사용자 필드**: `manager`, `user_name`, `user_team` 컬럼 추가 (마이그레이션 014)
-- **Excel/CSV 가져오기**: 템플릿 다운로드(.xlsx) + 파일 업로드 → 미리보기 → 벌크 등록 (최대 500건)
-- **Import API**: `POST /api/assets/import` — 트랜잭션 기반 벌크 삽입, 유효성 검증
-- **SW 인벤토리 가져오기**: 템플릿 다운로드 + CSV/XLSX 벌크 등록 (`POST /api/assets/contracts/import`)
-- **도메인/SSL 가져오기**: 템플릿 다운로드 + CSV/XLSX 벌크 등록 (`POST /api/assets/ssl/import`)
-- **역할 기반 접근 제어**: 가져오기/추가는 admin만, 운영자는 수정만 (`requireRole('admin')`)
-- **자산 수정 버그 수정**: 빈 문자열 → NULL 변환 (날짜/IP 필드)
-- **검색 강화**: 관리담당자(`manager`), 사용자(`user_name`) 검색 추가
-- **로그아웃**: Header에 사용자 드롭다운 + 로그아웃 (`DELETE /api/auth`)
-- **로그인 잠금**: 5회 실패 시 30분 잠금 (마이그레이션 015), `GET /api/auth` 현재 사용자 정보
-
-## v2.2 개발 현황
-- [x] 1.1 자산에 설치 SW 표시 (확장 행에 뱃지 형태)
-- [x] 2.1 조직 트리 구조 (`organizations` 테이블, 마이그레이션 016, CRUD API + 트리 뷰 페이지)
-- [x] 3.1 에이전트 자동 설치 스크립트 생성 (Linux/Windows 원클릭 설치)
-- [x] 4.1 감사 로그 UI + 기록 로직 (`audit.ts` 헬퍼, `/security/audit` 페이지)
-- [x] 4.2 장애 이력 내보내기 (Excel, MTTR 포함)
-- [x] 4.3 컴플라이언스 리포트 (`/reports/compliance` — 자산 완성도, MTTR, 접근 제어, 감사 로그)
-
-### LLM 구성 이후
-- [ ] AI 채팅 API (`/api/ai/chat`)
-- [ ] AI 예측 API (`/api/ai/predictions`)
-- [ ] AI 로그 분석 (`/api/ai/log-analysis`)
-- [ ] AI 근본원인 분석 (인시던트 연동)
-
-## 에이전트 빌드
-```powershell
-.\build-agents.ps1              # 전체 (14개 패키지)
-.\build-agents.ps1 -Target push # Push Agent만
-.\build-agents.ps1 -Target pull # Pull Agent만
-```
-
-Linux: `scripts/build-agent.sh`
-
-## 마이그레이션 파일 순서
-`scripts/migrations/` 디렉토리가 PostgreSQL `docker-entrypoint-initdb.d`로 마운트됨.
-파일명 순서대로 자동 실행: 001 → 002 → ... → 016 → 999_dev_seed → 999_sample_data → 999_v2_sample_data
+## Migration from Argus v2.x
+Digicap v3.0 is a full rewrite of Argus:
+- Backend moved from Next.js API Routes to Go (Echo v4)
+- All 16 Argus migrations merged into single `000001_initial.up.sql`
+- Frontend remains Next.js 14 but now proxies all `/api/*` to Go backend
+- Go handles: auth, scheduling, syslog, websocket, metrics ingestion, all CRUD

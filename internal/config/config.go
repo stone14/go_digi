@@ -31,10 +31,10 @@ func Load() (*Config, error) {
 		Port: "3200",
 		DB: DBConfig{
 			Host:     "localhost",
-			Port:     "5432",
-			User:     "argus",
-			Password: "argus",
-			Database: "argus",
+			Port:     "5433",
+			User:     "digicap",
+			Password: "digicap_password_change_me",
+			Database: "digicap",
 			MaxConns: 20,
 		},
 	}

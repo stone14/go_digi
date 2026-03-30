@@ -5,7 +5,7 @@ services:
     image: postgres:16-alpine
     container_name: digicap-db
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_DB: digicap
       POSTGRES_USER: digicap
@@ -25,7 +25,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3100:3100"   # Next.js frontend
+      - "3300:3100"   # Next.js frontend (3300 — argus-web이 3100 사용)
       - "3200:3200"   # Go backend API
       - "5140:5140/udp"  # Syslog
     environment:
